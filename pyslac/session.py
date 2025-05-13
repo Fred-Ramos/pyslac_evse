@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from binascii import hexlify
 from dataclasses import dataclass, field
 from inspect import isawaitable
@@ -8,6 +7,7 @@ from typing import List, Optional, Union
 
 from pyslac import __version__
 from pyslac.enums import (
+    C_SEQU_RETRY_TIMES,
     CM_ATTEN_CHAR,
     CM_ATTEN_PROFILE,
     CM_MNBC_SOUND,
@@ -28,17 +28,17 @@ from pyslac.enums import (
     SLAC_MSOUNDS,
     SLAC_PAUSE,
     SLAC_RESP_TYPE,
-    SLAC_SETTLE_TIME,
     STATE_MATCHED,
     STATE_MATCHING,
     STATE_UNMATCHED,
+    HLC_SUCESS,
+    HLC_FAIL,
     FramesSizes,
     Timers,
 )
 
 # This timeout is imported from the environment file, because it makes it
 # easier to use it with the dev compose file for dev and debugging reasons
-from pyslac.environment import Config
 from pyslac.layer_2_headers import EthernetHeader, HomePlugHeader
 from pyslac.messages import (
     AtennChar,
@@ -63,9 +63,8 @@ from pyslac.utils import cancel_task, generate_nid, get_if_hwaddr
 from pyslac.utils import half_round as hw
 from pyslac.utils import task_callback, time_now_ms
 
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger("slac_session")
-
+import logging
+logger=logging.getLogger(__name__)
 
 @dataclass
 class SlacSession:
@@ -183,7 +182,7 @@ class SlacSession:
     pause: int = SLAC_PAUSE
 
     # Time used by the EVSE and EV to wait after sending a CM_SET_KEY.REQ
-    settle_time: int = SLAC_SETTLE_TIME
+    settle_time: int = Timers.SLAC_SETTLE_TIME
 
     # contains the reference to the task running the matching session
     matching_process_task: Optional[asyncio.Task] = None
@@ -194,12 +193,15 @@ class SlacSession:
         NID and NMK are not reset, because who handles the operation is the
         call to evse_set_key: as defined by the standard, if we cant set a new
         NID and NMK, then we shall use the already defined ones
+        
+        EVSE_MAC is not reset because it is an intrinsic property of the EVSE
+        and remains constant across sessions.
         """
+        logger.info("Reseting SLAC session values")
         self.state = STATE_UNMATCHED
         self.forwarding_sta = b""
         self.pev_id = None
         self.pev_mac = b""
-        self.evse_mac = b""
         self.run_id = b""
         self.application_type = 0x00
         self.security_type = 0x00
@@ -213,20 +215,19 @@ class SlacSession:
         self.rnd = (0).to_bytes(17, "big")
         self.slac_threshold = SLAC_LIMIT
         self.pause = SLAC_PAUSE
-        self.settle_time = SLAC_SETTLE_TIME
+        self.settle_time = Timers.SLAC_SETTLE_TIME
         self.matching_process_task = None
 
 
 class SlacEvseSession(SlacSession):
     # pylint: disable=too-many-instance-attributes, too-many-arguments
     # pylint: disable=logging-fstring-interpolation, broad-except
-    def __init__(self, evse_id: str, iface: str, config: Config):
+    def __init__(self, evse_id: str, iface: str):
         self.iface = iface
         self.evse_id = evse_id
-        self.config = config
         host_mac = get_if_hwaddr(self.iface)
         logger.debug(
-            f"Session created for evse_id {self.evse_id} on " f"interface {self.iface}"
+            f"SLAC Session created for EVSE ID {self.evse_id} on " f"interface {self.iface}"
         )
         self.socket = create_socket(iface=self.iface, port=0)
         self.evse_plc_mac = EVSE_PLC_MAC
@@ -237,29 +238,45 @@ class SlacEvseSession(SlacSession):
         self.socket = create_socket(iface=self.iface, port=0)
 
     async def send_frame(self, frame_to_send: bytes) -> None:
-        """
-        Async wrapper for a sendeth that checks if sendeth is an awaitable
-        """
-        # TODO: Add this to a send method
-        bytes_sent = sendeth(
-            s=self.socket, frame_to_send=frame_to_send, iface=self.iface
-        )
-        if isawaitable(bytes_sent):
-            await bytes_sent
+        try:
+            """
+            Async wrapper for a sendeth that checks if sendeth is an awaitable
+            """
+            # logger.debug(f"Sending bytes: \n {hexlify(frame_to_send)}")
+            # Attempt to send the frame and await the result if necessary
+            bytes_sent = sendeth(
+                s=self.socket, frame_to_send=frame_to_send, iface=self.iface
+            )
+
+            # Check if bytes_sent is a coroutine (i.e., awaitable), and if so, await it and capture the result
+            if isawaitable(bytes_sent):
+                await bytes_sent
+
+        except Exception as e:
+            logger.exception(e)
+            raise e
+
+
 
     async def rcv_frame(self, rcv_frame_size: int, timeout: Union[float, int]) -> bytes:
-        """
-        Helper function to diminush the lines of code when calling the
-        asyncio.wait_for with readeth
+        try:
+            """
+            Helper function to diminush the lines of code when calling the
+            asyncio.wait_for with readeth
 
-        :param rcv_frame_size: size of the frame to be received
-        :param timeout: timeout for the specific message that is being expected
-        :return:
-        """
-        return await asyncio.wait_for(
-            readeth(self.socket, self.iface, rcv_frame_size),
-            timeout,
-        )
+            :param rcv_frame_size: size of the frame to be received
+            :param timeout: timeout for the specific message that is being expected
+            :return:
+            """
+            payload = await asyncio.wait_for(
+                readeth(self.socket, self.iface, rcv_frame_size),
+                timeout,
+            )
+            # logger.debug(f"Payload Received: \n {hexlify(payload)}")
+            return payload
+        except Exception as e:
+                logger.exception(e)
+                raise e
 
     async def leave_logical_network(self):
         """
@@ -269,6 +286,7 @@ class SlacEvseSession(SlacSession):
         state of the session shall now be "Unmatched"
         As preparation for the next session, we set a new NMK and NID
         """
+        logger.info("Leaving logical network")
         await self.evse_set_key()
         self.reset()
 
@@ -293,7 +311,7 @@ class SlacEvseSession(SlacSession):
 
         The only secure way to remove a STA from an AVLN is to change the NMK
         """
-        logger.info("CM_SET_KEY: Started...")
+        logger.debug("CM_SET_KEY: Started...")
         # for each new set_key message sent (or pyslac session),
         # a new pair of NID (Network ID) and NMK (Network Mask) shall be
         # generated
@@ -320,6 +338,7 @@ class SlacEvseSession(SlacSession):
         # SetKeyReq. Maybe even create a class SetKey that handles both the
         # Send and the CNF of the message
         try:
+            logger.info(f"SET KEY WAITING FOR TIMER {Timers.SLAC_INIT_TIMEOUT}")
             await self.send_frame(frame_to_send)
             data_rcvd = await self.rcv_frame(
                 rcv_frame_size=FramesSizes.CM_SET_KEY_CNF,
@@ -342,8 +361,8 @@ class SlacEvseSession(SlacSession):
             else:
                 raise ValueError("SetKeyCnf data parsing into the class failed") from e
         logger.debug("Registering NMK and NID into the PLC node...")
-        await asyncio.sleep(SLAC_SETTLE_TIME)
-        logger.info("CM_SET_KEY: Finished!")
+        await asyncio.sleep(Timers.SLAC_SETTLE_TIME) #Wait some time after registering NMK and NID before proceeding
+        logger.info("Sucessfully registered new NMK and NID on PLC node")
         return data_rcvd
 
     async def evse_slac_parm(self) -> None:
@@ -361,19 +380,21 @@ class SlacEvseSession(SlacSession):
                 # it this frame requires padding)
                 data_rcvd = await self.rcv_frame(
                     rcv_frame_size=FramesSizes.CM_SLAC_PARM_REQ,
-                    timeout=self.config.slac_init_timeout,
+                    timeout=Timers.SLAC_INIT_TIMEOUT,
                 )
             except TimeoutError as e:
                 logger.warning(f"Timeout waiting for CM_SLAC_PARM.REQ: {e}")
                 raise e
             try:
                 ether_frame = EthernetHeader.from_bytes(data_rcvd)
+                logger.debug(f"Ethernet Frame: {ether_frame}")  # Print Ethernet header details
                 homeplug_frame = HomePlugHeader.from_bytes(data_rcvd)
+                logger.debug(f"HomePlug Frame: {homeplug_frame}")  # Print HomePlug header details
                 if homeplug_frame.mm_type != CM_SLAC_PARM | MMTYPE_REQ:
-                    logger.warning("Frame received is not CM_SLAC_PARM.REQ")
-                    logger.debug("Continue waiting for CM_SLAC_PARM.REQ...")
+                    logger.debug(f"Received mm_type does not match CM_SLAC_PARM | MMTYPE_REQ, skipping")
                     continue
                 slac_parm_req = SlacParmReq.from_bytes(data_rcvd)
+                logger.debug(f"SLAC PARM REQ Frame: {slac_parm_req}")
             except Exception as e:
                 # TODO: PROPER Exception
                 logger.exception(e, exc_info=True)
@@ -394,6 +415,7 @@ class SlacEvseSession(SlacSession):
         homeplug_header = HomePlugHeader(CM_SLAC_PARM | MMTYPE_CNF)
         slac_parm_cnf = SlacParmCnf(forwarding_sta=self.pev_mac, run_id=self.run_id)
 
+        
         frame_to_send = (
             ether_header.pack_big()
             + homeplug_header.pack_big()
@@ -468,8 +490,7 @@ class SlacEvseSession(SlacSession):
         # set by the EV in CM_START_ATTEN_CHAR if ATTEN_RESULTS_TIMEOUT is
         # not None
         self.time_out_ms = start_atten_char.time_out * 100
-        if self.config.slac_atten_results_timeout:
-            self.time_out_ms = self.config.slac_atten_results_timeout
+        self.time_out_ms = int(self.time_out_ms*0.9) # 0.9 to not trigger EV Side timeout
         self.forwarding_sta = start_atten_char.forwarding_sta
         logger.debug("CM_START_ATTEN_CHAR: Finished!")
 
@@ -603,11 +624,11 @@ class SlacEvseSession(SlacSession):
 
                 # Check for a timeout of a reception of the expected sounds
                 time_elapsed = time_now_ms() - time_start
-                if (
-                    time_elapsed < self.time_out_ms
-                    and self.num_total_sounds < self.num_expected_sounds
-                ):
-                    continue
+                if self.num_total_sounds < self.num_expected_sounds:
+                    if time_elapsed < self.time_out_ms:
+                        continue
+                    else:
+                        logger.info(f"CM_SOUND timeout | elapsed/max: {time_elapsed}/{self.time_out_ms}")
 
                 # Time specified by the EV for the Characterization has expired
                 # or num of total sounds is >= expected sounds thus, the Atten
@@ -650,12 +671,10 @@ class SlacEvseSession(SlacSession):
                     # PLC chip to send a sound, so we use 1 sec instead
                     timeout=1,
                 )
-                logger.debug(f"Payload Received: \n {hexlify(data_rcvd)}")
                 ether_frame = EthernetHeader.from_bytes(data_rcvd)
                 homeplug_frame = HomePlugHeader.from_bytes(data_rcvd)
                 if homeplug_frame.mm_type != CM_ATTEN_CHAR | MMTYPE_RSP:
-                    logger.warning("Frame received is not CM_ATTEN_CHAR.RSP")
-                    logger.debug("Continue waiting for CM_ATTEN_CHAR.RSP...")
+                    logger.debug("Frame received is not CM_ATTEN_CHAR.RSP | Continue waiting...")
                     continue
                 atten_charac_response = AtennCharRsp.from_bytes(data_rcvd)
             except Exception as e:
@@ -705,13 +724,10 @@ class SlacEvseSession(SlacSession):
                     rcv_frame_size=FramesSizes.CM_SLAC_MATCH_REQ,
                     timeout=Timers.SLAC_MATCH_TIMEOUT,
                 )
-
-                logger.debug(f"Payload Received: \n {hexlify(data_rcvd)}")
                 ether_frame = EthernetHeader.from_bytes(data_rcvd)
                 homeplug_frame = HomePlugHeader.from_bytes(data_rcvd)
                 if homeplug_frame.mm_type != CM_SLAC_MATCH | MMTYPE_REQ:
-                    logger.warning("Frame received is not CM_SLAC_MATCH.REQ")
-                    logger.debug("Continue waiting for CM_SLAC_MATCH.REQ...")
+                    logger.debug("Frame received is not CM_SLAC_MATCH.REQ | Continue waiting...")
                     continue
                 slac_match_req = MatchReq.from_bytes(data_rcvd)
             except Exception as e:
@@ -764,8 +780,21 @@ class SlacEvseSession(SlacSession):
             + homeplug_header.pack_big()
             + slac_match_conf.pack_big()
         )
-
         await self.send_frame(frame_to_send)
+
+
+
+
+        #check if link is healthy
+        while not await self.is_link_status_active():
+            logger.debug("link not healthy yet, waiting")
+            await asyncio.sleep(0.5)
+
+
+
+
+
+
         logger.debug("CM_SLAC_MATCH: Finished!")
         self.state = STATE_MATCHED
 
@@ -811,8 +840,7 @@ class SlacEvseSession(SlacSession):
         )
         if isawaitable(payload_rcvd):
             payload_rcvd = await payload_rcvd
-
-        logger.debug(f"Payload Received {payload_rcvd}")
+        # logger.debug(f"Payload Received {payload_rcvd}")
         try:
             # TODO: Create the Link Status Class and HomePlug to get properly
             # TODO: the info
@@ -826,20 +854,19 @@ class SlacEvseSession(SlacSession):
         logger.debug("Link Status: Active")
         return True
 
-    async def atten_charac_routine(self):
-        await self.cm_start_atten_charac()
-        await self.cm_sounds_loop()
-        await self.cm_atten_char()
-        await self.cm_slac_match()
+    async def atten_charac_routine(self, slac_session: "SlacEvseSession"):
+        try:
+            await self.cm_start_atten_charac()
+            await self.cm_sounds_loop()
+            await self.cm_atten_char()
+            await self.cm_slac_match()
+        except Exception as e:
+            logger.debug(f"Exception \"{e}\" Occurred during Attenuation Charac Routine")
 
 
 class SlacSessionController:
     def __init__(self):
-        logger.info(
-            f"\n\n#################################################"
-            f"\n ###### Starting PySlac version: {__version__} #######"
-            f"\n#################################################\n"
-        )
+        logger.info(f"Starting (INESCTEC Modified) EcoG-io's PYSLAC MODULE VERSION: {__version__}")
 
     async def notify_matching_ongoing(self, evse_id: str):
         """
@@ -861,7 +888,7 @@ class SlacSessionController:
         """
         pass
 
-    async def process_cp_state(self, slac_session, state: str):
+    async def process_cp_state(self, slac_session, state: str) -> int:
         """
         If it is the case a matching process is not ongoing
         and the CP has transited to state B, C or D, it spawns a new matching task,
@@ -885,7 +912,7 @@ class SlacSessionController:
                 # leaving the logical network
                 # In order to avoid writing too many times to the device,
                 # we dont reset the NID and NMK between charging sessions for now
-                # await slac_session.leave_logical_network()
+                await slac_session.leave_logical_network()
                 slac_session.matching_process_task = None
                 logger.debug("Leaving Logical Network")
         elif cp_state in ["B", "C", "D"] and slac_session.matching_process_task is None:
@@ -901,9 +928,16 @@ class SlacSessionController:
             # forces each task to have a nursery, so that exceptions are not lost
             slac_session.matching_process_task.add_done_callback(task_callback)
 
-    async def start_matching(
-        self, slac_session: "SlacEvseSession", number_of_retries=3
-    ) -> None:
+            # Wait for the task to complete
+            try:
+                result = await slac_session.matching_process_task
+                logger.debug(f"Matching process completed with result: {result}")
+                return result
+                # Handle the result if needed
+            except Exception as e:
+                logger.error(f"Error in matching process: {e}", exc_info=True)
+
+    async def start_matching(self, slac_session: "SlacEvseSession") -> int:
         """
         Task that is spawned once a state change is detected from A, E or F to
         B, C or D. This task is responsible to run the right methods defined in
@@ -913,33 +947,32 @@ class SlacSessionController:
         SLAC will restart.
 
         :param slac_session: Instance of SlacEvseSession
-        :param number_of_retries: number of trials before SLAC Mathing is defined
+        :param number_of_attempts: number of attempts before SLAC Mathing is defined
         as a failure
         :return: None
         """
-        while number_of_retries:
-            number_of_retries -= 1
+        try:
             await slac_session.evse_slac_parm()
             if slac_session.state == STATE_MATCHING:
                 logger.info(
                     f"Matching ongoing (EVSE ID: {slac_session.evse_id}. Run ID: {slac_session.run_id})."
                 )
-                await self.notify_matching_ongoing(slac_session.evse_id)
-                try:
-                    await slac_session.atten_charac_routine()
-                except Exception as e:
-                    slac_session.state = STATE_UNMATCHED
-                    logger.debug(
-                        f"Exception Occurred during Attenuation Charc Routine:"
-                        f"{e} \n"
-                        f"Number of retries left {number_of_retries}"
-                    )
+                await self.notify_matching_ongoing(slac_session.evse_id) #for now this does nothing
+
+                await slac_session.atten_charac_routine(slac_session)    
+        
+        except Exception as e:
+            slac_session.state = STATE_UNMATCHED
+        
+        finally:
+            # Proceed with the rest of the logic after successful evse_slac_parm call
             if slac_session.state == STATE_MATCHED:
                 logger.info(
-                    f"PEV-EVSE MATCHED Successfully, Link Established (EVSE ID: {slac_session.evse_id}. Run ID: {slac_session.run_id})."
+                    f"PEV-EVSE MATCHED SUCESSFULLY, LINK ESTABLISHED (EVCC PLC_MAC: {slac_session.pev_mac} | EVSE ID: {slac_session.evse_id} | Run ID: {slac_session.run_id})."
                 )
-                while True:
-                    await asyncio.sleep(2.0)
+                return HLC_SUCESS #communication HLC was sucessfull
+                # while True:
+                #     await asyncio.sleep(2.0)
 
                 # The check of the link status wont be done using the message
                 # LINK_STATUS, because it is not a proper way to check it since
@@ -949,23 +982,20 @@ class SlacSessionController:
                 # logger.debug("PEV-EVSE Link Lost")
                 # leaving the logical network
                 # In order to avoid writing too many times to the device,
-                # we dont reset the NID and NMK between charging sessions for now
+                # we dont reset the NID and NMK between charging sessions for now 
                 # await slac_session.leave_logical_network()
                 # slac_session.matching_process_task = None
                 # break
-            if slac_session.state == STATE_UNMATCHED:
-                number_of_retries -= 1
-                if number_of_retries > 0:
-                    logger.warning("PEV-EVSE MATCHED Failed; Retrying..")
-                else:
-                    logger.error("PEV-EVSE MATCHED Failed: No more retries " "possible")
-                    await self.notify_matching_failed(slac_session.evse_id)
-            else:
+            elif slac_session.state == STATE_UNMATCHED:
+                logger.debug("PEV-EVSE MATCHED Failed")
+                await self.notify_matching_failed(slac_session.evse_id)
+            elif slac_session.state != STATE_MATCHING:
                 logger.error(f"SLAC State not recognized {slac_session.state}")
-
-        logger.debug("SLAC Protocol Concluded...")
+        
+        logger.debug("SLAC Protocol Atempt Concluded...")
         # TODO: May need to communicate to HLE that the link is lost (check section
         # 7.5 Loss of communication in -3). Send Unmatched
         # TODO: May need to communicate to CS that the link is gone, so that
         # Basic Charging can be tried
         await slac_session.leave_logical_network()
+        return HLC_FAIL #communication HLC FAILED
