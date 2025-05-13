@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from ctypes import addressof, create_string_buffer
 
 # pylint: disable=no-name-in-module
@@ -31,9 +30,8 @@ from pyslac.sockets.enums import (
 )
 from pyslac.utils import time_now_ms
 
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger("async_linux_socket")
-
+import logging
+logger = logging.getLogger(__name__)
 
 def bpf_jump(code, k, jt, jf):
     return pack("HBBI", code, jt, jf, k)

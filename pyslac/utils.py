@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import socket
 import struct
 import time
@@ -9,8 +8,8 @@ from math import copysign
 from sys import platform
 from typing import Coroutine, List
 
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger("slac_utils")
+import logging
+logger = logging.getLogger(__name__)
 
 # commands
 SIOCGIFHWADDR = 0x8927  # Get hardware address
