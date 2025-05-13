@@ -20,6 +20,7 @@ from enum import Enum
 # shall go to state E or F for T_step_EF (min 4 s), shall go back to 5 % duty
 # cycle, and  shall reset the TT_EVSE_SLAC_init timeout before being ready to
 # answer a matching request again. This sequence shall be retried
+C_SEQU_RETRY_TIMES = 3
 # C_sequ_retry times (2). At the end, without any reaction, the EVSE shall go
 # to state X1
 
@@ -52,7 +53,7 @@ class Timers(float, Enum):
     # This Timer is actually set in the environment.py, for debugging and
     # development reasons, allowing a easier setting of the time with the
     # docker-compose.dev.yml
-    SLAC_INIT_TIMEOUT = 50.0  # [TT_EVSE_SLAC_init=20 s - 50 s]
+    SLAC_INIT_TIMEOUT = 20.0  # [TT_EVSE_SLAC_init=20 s - 50 s]
 
     # Timeout for the reception of either CM_VALIDATE.REQ or CM_SLAC_MATCH.REQ
     # message, after reception of CM_ATTEN_CHAR.RSP
@@ -60,7 +61,7 @@ class Timers(float, Enum):
 
     # Time the EV shall wait for CM_ATTEN_CHAR.IND after sending the first
     # CM_START_ATTEN_CHAR.IND
-    SLAC_ATTEN_RESULTS_TIMEOUT = 1.2  # [TT_EV_atten_results = 1200 ms]
+    SLAC_ATTEN_RESULTS_TIMEOUT = 1.2  # [TT_EV_atten_results = 1200 ms]     IN THE CODE WHEN IT IS USED WE REMOVE 0.2 SO THAT THE EV SIDE TIMEOUT IS NOT CALLED
 
     # Timeout used for awaiting for a Request
     SLAC_REQ_TIMEOUT = 0.4  # [TT_match_sequence = 400 ms]
@@ -92,6 +93,10 @@ class Timers(float, Enum):
     # Time required to await while in state E or F (used in some use cases,
     # like the one defined by [V2G3 M06-07])
     SLAC_E_F_TIMEOUT = 4.0  # [T_step_EF = min 4 s]
+
+    # Time to await after reception of a successful CM_SET_KEY.CNF
+    # This timer is used and defined in the Qualcomm example
+    SLAC_SETTLE_TIME = 1
 
 
 # Timeout on the EVSE side that triggers the calculation of the average
@@ -150,9 +155,6 @@ SLAC_SECURITY_TYPE = 0x00
 SLAC_PAUSE = 0.02
 SLAC_GROUPS = 58
 SLAC_LIMIT = 40
-# Time to await after reception of a successful CM_SET_KEY.CNF
-# This timer is used and defined in the Qualcomm example
-SLAC_SETTLE_TIME = 10
 
 ETHER_ADDR_LEN = 6
 BROADCAST_ADDR = b"\xFF" * 6
@@ -197,9 +199,11 @@ STATE_UNMATCHED = 0
 STATE_MATCHING = 1
 STATE_MATCHED = 2
 
+#COMMUNICATION LEVEL
+HLC_FAIL = -1 #FAIL/UNDETERMINED
+LLC_COM = 0
+HLC_SUCESS = 1
 
-# Station Identifier
-EVSE_ID = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
 # The dest MAC was defined in channel.c as follows in Qualcomm open-plc
 EVSE_PLC_MAC = b"\x00\xb0\x52\x00\x00\x01"
 
