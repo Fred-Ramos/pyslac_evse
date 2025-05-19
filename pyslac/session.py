@@ -32,7 +32,7 @@ from pyslac.enums import (
     STATE_MATCHING,
     STATE_UNMATCHED,
     HLC_SUCESS,
-    HLC_FAIL,
+    HLC_NO_LINK,
     FramesSizes,
     Timers,
 )
@@ -998,4 +998,4 @@ class SlacSessionController:
         # TODO: May need to communicate to CS that the link is gone, so that
         # Basic Charging can be tried
         await slac_session.leave_logical_network()
-        return HLC_FAIL #communication HLC FAILED
+        return HLC_NO_LINK #communication HLC FAILED
