@@ -7,7 +7,6 @@ from typing import List, Optional, Union
 
 from pyslac import __version__
 from pyslac.enums import (
-    C_SEQU_RETRY_TIMES,
     CM_ATTEN_CHAR,
     CM_ATTEN_PROFILE,
     CM_MNBC_SOUND,
@@ -210,7 +209,7 @@ class SlacSession:
         self.num_total_sounds = 0
         self.sounds = SLAC_MSOUNDS
         self.time_out_ms = SLAC_ATTEN_TIMEOUT
-        self.aag = field(default_factory=lambda: [0] * SLAC_GROUPS)
+        self.aag = field(default_factory=lambda: [0] * SLAC_GROUPS) # Aggregated Attenuation Groups
         self.num_groups = None
         self.rnd = (0).to_bytes(17, "big")
         self.slac_threshold = SLAC_LIMIT
