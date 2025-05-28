@@ -273,9 +273,14 @@ class SlacEvseSession(SlacSession):
             )
             # logger.debug(f"Payload Received: \n {hexlify(payload)}")
             return payload
+        
+        except TimeoutError as e:
+            logger.error("timeout on receiving frame")
+            raise e
         except Exception as e:
-                logger.exception(e)
-                raise e
+            logger.exception(e)
+            raise e
+
 
     async def leave_logical_network(self):
         """

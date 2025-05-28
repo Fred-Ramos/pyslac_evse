@@ -92,7 +92,7 @@ class Timers(float, Enum):
 
     # Time required to await while in state E or F (used in some use cases,
     # like the one defined by [V2G3 M06-07])
-    SLAC_E_F_TIMEOUT = 10.0  # [T_step_EF = min 4 s]
+    SLAC_E_F_TIMEOUT = 4.0  # [T_step_EF = min 4 s]
 
     # Time to await after reception of a successful CM_SET_KEY.CNF
     # This timer is used and defined in the Qualcomm example
