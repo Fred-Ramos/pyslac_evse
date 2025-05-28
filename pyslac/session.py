@@ -30,8 +30,8 @@ from pyslac.enums import (
     STATE_MATCHED,
     STATE_MATCHING,
     STATE_UNMATCHED,
-    HLC_SUCESS,
-    HLC_NO_LINK,
+    COMMUNICATION_HLC,
+    COMMUNICATION_NONE,
     FramesSizes,
     Timers,
 )
@@ -969,7 +969,7 @@ class SlacSessionController:
                 logger.info(
                     f"PEV-EVSE MATCHED SUCESSFULLY, LINK ESTABLISHED (EVCC PLC_MAC: {slac_session.pev_mac} | EVSE ID: {slac_session.evse_id} | Run ID: {slac_session.run_id})."
                 )
-                return HLC_SUCESS #communication HLC was sucessfull
+                return COMMUNICATION_HLC #communication HLC was sucessfull
                 # while True:
                 #     await asyncio.sleep(2.0)
 
@@ -997,4 +997,4 @@ class SlacSessionController:
         # TODO: May need to communicate to CS that the link is gone, so that
         # Basic Charging can be tried
         await slac_session.leave_logical_network()
-        return HLC_NO_LINK #communication HLC FAILED
+        return COMMUNICATION_NONE #communication HLC FAILED

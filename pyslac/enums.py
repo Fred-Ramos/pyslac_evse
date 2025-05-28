@@ -92,7 +92,7 @@ class Timers(float, Enum):
 
     # Time required to await while in state E or F (used in some use cases,
     # like the one defined by [V2G3 M06-07])
-    SLAC_E_F_TIMEOUT = 4.0  # [T_step_EF = min 4 s]
+    SLAC_E_F_TIMEOUT = 10.0  # [T_step_EF = min 4 s]
 
     # Time to await after reception of a successful CM_SET_KEY.CNF
     # This timer is used and defined in the Qualcomm example
@@ -200,9 +200,9 @@ STATE_MATCHING = 1
 STATE_MATCHED = 2
 
 #COMMUNICATION LEVEL
-HLC_NO_LINK = -1 #FAIL/UNDETERMINED
-LLC_COM = 0
-HLC_SUCESS = 1
+COMMUNICATION_NONE = -1 #FAIL/UNDETERMINED
+COMMUNICATION_LLC = 0
+COMMUNICATION_HLC = 1
 
 # The dest MAC was defined in channel.c as follows in Qualcomm open-plc
 EVSE_PLC_MAC = b"\x00\xb0\x52\x00\x00\x01"
