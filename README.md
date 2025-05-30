@@ -52,7 +52,7 @@ There are two  ways of running the examples:
 
 Both the single and multiple session examples have the same structure:
 ```python
-class SlacHandler(SlacSessionController):
+class Slac_Handler(SlacSessionController):
     def __init__(self, slac_config: Config):
         SlacSessionController.__init__(self)
         self.slac_config = slac_config
@@ -92,7 +92,7 @@ Both start by attempting to create a `SlacEvseSession` for each evse, which netw
 interface is defined in the `cs_config` dictionary. If, for example, the network
 interface defined does not exist, the system will raise an error and exit.
 
-Both define a class named `SlacHandler`, which inherits from `SlacSessionController`.
+Both define a class named `Slac_Handler`, which inherits from `SlacSessionController`.
 The `SlacSessionController` has two main methods `process_cp_state` and `start_matching`.
 The `process_cp_state` is a handler for the state change of the Control Pilot circuit
 and based on a state transition from "A, E or F" to "B, C or D", the `start_matching`

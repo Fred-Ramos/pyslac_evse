@@ -53,7 +53,7 @@ class Timers(float, Enum):
     # This Timer is actually set in the environment.py, for debugging and
     # development reasons, allowing a easier setting of the time with the
     # docker-compose.dev.yml
-    SLAC_INIT_TIMEOUT = 20.0  # [TT_EVSE_SLAC_init=20 s - 50 s]
+    SLAC_INIT_TIMEOUT = 10.0  # [TT_EVSE_SLAC_init=20 s - 50 s]
 
     # Timeout for the reception of either CM_VALIDATE.REQ or CM_SLAC_MATCH.REQ
     # message, after reception of CM_ATTEN_CHAR.RSP
