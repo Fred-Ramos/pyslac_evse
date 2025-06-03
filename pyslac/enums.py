@@ -53,7 +53,7 @@ class Timers(float, Enum):
     # This Timer is actually set in the environment.py, for debugging and
     # development reasons, allowing a easier setting of the time with the
     # docker-compose.dev.yml
-    SLAC_INIT_TIMEOUT = 10.0  # [TT_EVSE_SLAC_init=20 s - 50 s]
+    SLAC_INIT_TIMEOUT = 20.0  # [TT_EVSE_SLAC_init=20 s - 50 s]
 
     # Timeout for the reception of either CM_VALIDATE.REQ or CM_SLAC_MATCH.REQ
     # message, after reception of CM_ATTEN_CHAR.RSP
@@ -201,9 +201,10 @@ STATE_MATCHED = 2
 
 #COMMUNICATION LEVEL
 COMMUNICATION_UNDEFINED = -2
-COMMUNICATION_DETERMINING = -1 #FAIL/UNDETERMINED
+COMMUNICATION_DETERMINING = -1
 COMMUNICATION_LLC = 0
-COMMUNICATION_HLC = 1
+COMMUNICATION_HLC_READY = 1
+COMMUNICATION_HLC = 2 #FAIL/UNDETERMINED
 
 # The dest MAC was defined in channel.c as follows in Qualcomm open-plc
 EVSE_PLC_MAC = b"\x00\xb0\x52\x00\x00\x01"

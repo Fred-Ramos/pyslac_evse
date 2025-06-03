@@ -609,9 +609,16 @@ class SlacEvseSession(SlacSession):
                 )
                 ether_frame = EthernetHeader.from_bytes(data_rcvd)
                 homeplug_frame = HomePlugHeader.from_bytes(data_rcvd)
+            except asyncio.CancelledError:
+                logger.warning("SLAC sound loop was cancelled")
+                raise  # Important: Re-raise to let cancellation propagate
+            except asyncio.TimeoutError:
+                logger.warning("Timeout waiting for SLAC frame")
+                # Possibly break/continue depending on your timeout logic
+                break
             except Exception as e:
-                logger.exception(e, exc_info=True)
-                raise e
+                logger.exception("Unexpected error in SLAC cm_sounds_loop")
+                raise
             if (
                 ether_frame.ether_type == ETH_TYPE_HPAV
                 and homeplug_frame.mmv == HOMEPLUG_MMV
